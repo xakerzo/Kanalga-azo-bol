@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # BOT OWNER ID
 # ------------------------------
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "1373647"))
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8227647066:AAHVl028wisNavIs1f8e-CYB97NDTB6RAhU")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8227647066:AAHVzzhMSgDCYz3pLqg96N8iQKlYcplhAuo")
 
 DB_PATH = "./data/channel_bot.db"
 os.makedirs("./data", exist_ok=True)
