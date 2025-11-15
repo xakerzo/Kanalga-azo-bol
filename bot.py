@@ -380,10 +380,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await update.message.delete()
                 
-                warning_msg = await update.message.reply_text(
-                    f"👋 {user.mention_html()}\n{settings['welcome_message']}",
-                    parse_mode='HTML'
-                )
+                warning_msg = await context.bot.send_message(
+    chat_id=chat.id,
+    text=f"👋 {user.mention_html()}\n{settings['welcome_message']}",
+    parse_mode='HTML'
+)
                 
                 async def delete_warning(context):
                     try:
