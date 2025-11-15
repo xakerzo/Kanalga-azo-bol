@@ -1,13 +1,14 @@
 import logging
 import sqlite3
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, 
+    Updater, 
     CommandHandler, 
     MessageHandler, 
-    ContextTypes, 
+    CallbackContext, 
     CallbackQueryHandler,
-    filters
+    Filters
 )
 
 # Logging sozlamalari
@@ -17,8 +18,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 🔑 BOT OWNER ID - O'ZINGIZNING TELEGRAM ID NI QO'YING
-BOT_OWNER_ID = 1373647
+# 🔑 Environment variables
+BOT_OWNER_ID = int(os.getenv('BOT_OWNER_ID', '1373647'))
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+
+# Token tekshirish
+if not BOT_TOKEN:
+    logger.error("❌ BOT_TOKEN topilmadi! Environment variable ni o'rnating.")
+    exit(1)
 
 # Ma'lumotlar bazasini yaratish
 def init_db():
@@ -73,7 +80,6 @@ def save_group_settings(group_id, channel_username, welcome_message=None):
     
     conn.commit()
     conn.close()
-    logger.info(f"Guruh {group_id} sozlamalari saqlandi")
 
 # Sozlamalarni o'chirish
 def delete_group_settings(group_id):
@@ -84,15 +90,14 @@ def delete_group_settings(group_id):
     
     conn.commit()
     conn.close()
-    logger.info(f"Guruh {group_id} sozlamalari o'chirildi")
 
 # Kanal a'zoligini tekshirish
-async def check_channel_membership(user_id, channel_username, context):
+def check_channel_membership(user_id, channel_username, context):
     try:
         if not channel_username.startswith('@'):
             channel_username = '@' + channel_username
         
-        member = await context.bot.get_chat_member(channel_username, user_id)
+        member = context.bot.get_chat_member(channel_username, user_id)
         return member.status in ['member', 'administrator', 'creator']
     except Exception as e:
         logger.error(f"A'zolik tekshirish xatosi: {e}")
@@ -103,21 +108,20 @@ def is_owner(user_id):
     return user_id == BOT_OWNER_ID
 
 # 📨 FAQRAT OWNER UCHUN XABAR YUBORISH FUNKSIYALARI
-async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def broadcast_command(update: Update, context: CallbackContext):
     """Faqat owner barcha guruhlarga xabar yuboradi"""
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text("❌ Bu buyruq faqat bot owneri uchun!")
+        update.message.reply_text("❌ Bu buyruq faqat bot owneri uchun!")
         return
     
     if not context.args:
-        await update.message.reply_text("ℹ️ Foydalanish: /broadcast <xabar matni>")
+        update.message.reply_text("ℹ️ Foydalanish: /broadcast <xabar matni>")
         return
     
     message_text = ' '.join(context.args)
     
-    # Ma'lumotlar bazasidan barcha guruhlarni olish
     conn = sqlite3.connect('channel_bot.db')
     cursor = conn.cursor()
     cursor.execute('SELECT group_id FROM group_settings')
@@ -129,7 +133,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for group in groups:
         try:
-            await context.bot.send_message(
+            context.bot.send_message(
                 chat_id=group[0], 
                 text=f"📢 Bot yangiligi:\n\n{message_text}"
             )
@@ -138,28 +142,26 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Guruh {group[0]} ga xabar yuborish xatosi: {e}")
             failed_count += 1
     
-    await update.message.reply_text(
+    update.message.reply_text(
         f"✅ Xabar yuborildi!\n"
         f"✔️ Muvaffaqiyatli: {sent_count}\n"
         f"❌ Xatolik: {failed_count}"
     )
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def stats_command(update: Update, context: CallbackContext):
     """Faqat owner statistika ko'radi"""
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text("❌ Bu buyruq faqat bot owneri uchun!")
+        update.message.reply_text("❌ Bu buyruq faqat bot owneri uchun!")
         return
     
     conn = sqlite3.connect('channel_bot.db')
     cursor = conn.cursor()
     
-    # Guruhlar soni
     cursor.execute('SELECT COUNT(*) FROM group_settings')
     groups_count = cursor.fetchone()[0]
     
-    # Eng ko'p ishlatiladikan kanallar
     cursor.execute('''
         SELECT channel_username, COUNT(*) as count 
         FROM group_settings 
@@ -171,19 +173,19 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     conn.close()
     
-    stats_text = f"🤖 Bot Statistika (Owner)\n\n"
+    stats_text = f"🤖 Bot Statistika\n\n"
     stats_text += f"🔧 Faol guruhlar: {groups_count}\n\n"
     stats_text += "📈 Top kanallar:\n"
     
     for channel, count in popular_channels:
         stats_text += f"• {channel}: {count} guruh\n"
     
-    await update.message.reply_text(stats_text)
+    update.message.reply_text(stats_text)
 
-async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def myid_command(update: Update, context: CallbackContext):
     """Foydalanuvchi ID sini ko'rsatish"""
     user = update.effective_user
-    await update.message.reply_text(f"Sizning ID: {user.id}")
+    update.message.reply_text(f"Sizning ID: {user.id}")
 
 # Sozlash tugmalari
 def get_settings_keyboard():
@@ -196,14 +198,13 @@ def get_settings_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 # Start komandasi
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start_command(update: Update, context: CallbackContext):
     user = update.effective_user
     chat = update.effective_chat
     
     if chat.type == 'private':
         if is_owner(user.id):
-            # Owner uchun maxsus menyu
-            await update.message.reply_text(
+            update.message.reply_text(
                 f"👑 Salom Owner!\n\n"
                 f"Maxsus buyruqlar:\n"
                 f"/stats - Bot statistika\n"
@@ -211,7 +212,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"/myid - ID ni ko'rish"
             )
         else:
-            await update.message.reply_text(
+            update.message.reply_text(
                 f"👋 Salom {user.first_name}!\n\n"
                 "🤖 Men - guruhlarda faqat ma'lum kanalga obuna bo'lgan foydalanuvchilarga "
                 "yozishga ruxsat beruvchi botman.\n\n"
@@ -222,41 +223,37 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "4. Bot avtomatik tekshiradi!"
             )
     else:
-        # Guruhda adminlikni tekshirish
         try:
-            member = await chat.get_member(user.id)
+            member = chat.get_member(user.id)
             if member.status not in ['administrator', 'creator']:
-                await update.message.reply_text("❌ Faqat adminlar sozlamalarni o'zgartirishi mumkin!")
+                update.message.reply_text("❌ Faqat adminlar sozlamalarni o'zgartirishi mumkin!")
                 return
-        except Exception as e:
-            logger.error(f"Adminlik tekshirish xatosi: {e}")
-            await update.message.reply_text("❌ Xatolik yuz berdi!")
+        except:
+            update.message.reply_text("❌ Xatolik yuz berdi!")
             return
         
-        await update.message.reply_text(
+        update.message.reply_text(
             "⚙️ Guruh sozlamalari\n\n"
             "Quyidagi tugmalar orqali sozlamalarni boshqaring:",
             reply_markup=get_settings_keyboard()
         )
 
 # Sozlamalar komandasi
-async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def settings_command(update: Update, context: CallbackContext):
     chat = update.effective_chat
     
     if chat.type not in ['group', 'supergroup']:
-        await update.message.reply_text("❌ Bu buyruq faqat guruhlarda ishlaydi!")
+        update.message.reply_text("❌ Bu buyruq faqat guruhlarda ishlaydi!")
         return
     
-    # Adminlikni tekshirish
     try:
         user = update.effective_user
-        member = await chat.get_member(user.id)
+        member = chat.get_member(user.id)
         if member.status not in ['administrator', 'creator']:
-            await update.message.reply_text("❌ Faqat adminlar sozlamalarni o'zgartirishi mumkin!")
+            update.message.reply_text("❌ Faqat adminlar sozlamalarni o'zgartirishi mumkin!")
             return
-    except Exception as e:
-        logger.error(f"Adminlik tekshirish xatosi: {e}")
-        await update.message.reply_text("❌ Xatolik yuz berdi!")
+    except:
+        update.message.reply_text("❌ Xatolik yuz berdi!")
         return
     
     settings = get_group_settings(chat.id)
@@ -275,224 +272,32 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Kanal sozlamalarini o'rnatish uchun quyidagi tugmalardan foydalaning:"
         )
     
-    await update.message.reply_text(text, reply_markup=get_settings_keyboard())
+    update.message.reply_text(text, reply_markup=get_settings_keyboard())
 
 # Tugmalarni boshqarish
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    query.answer()
     
     data = query.data
     chat_id = query.message.chat_id
-    message_id = query.message.message_id
     
     if data == "add_channel":
-        await query.edit_message_text(
+        query.edit_message_text(
             "📢 Qaysi kanalga obuna bo'lishni talab qilmoqchisiz?\n\n"
             "Kanal username ni yuboring (@ belgisi bilan):\n"
-            "Masalan: @my_channel\n\n"
-            "ℹ️ Eslatma: Bot kanalda admin bo'lishi shart emas, faqat a'zolikni tekshiradi."
+            "Masalan: @my_channel"
         )
         context.user_data['waiting_for_channel'] = True
-        context.user_data['editing_message_id'] = message_id
         
     elif data == "set_welcome":
-        await query.edit_message_text(
+        query.edit_message_text(
             "✏️ Foydalanuvchi kanalga obuna bo'lmaganda chiqadigan xabarni yozing:\n\n"
             "Masalan: ❗️ Iltimos, avval @my_channel kanaliga obuna bo'ling!"
         )
         context.user_data['waiting_for_welcome'] = True
-        context.user_data['editing_message_id'] = message_id
         
     elif data == "remove_settings":
         delete_group_settings(chat_id)
-        await query.edit_message_text(
-            "✅ Sozlamalar o'chirildi!\n\n"
-            "Endi barcha foydalanuvchilar guruhda yozishi mumkin."
-        )
-        
-    elif data == "view_settings":
-        settings = get_group_settings(chat_id)
-        if settings:
-            text = (
-                f"📋 Sozlamalar:\n\n"
-                f"📢 Kanal: {settings['channel_username']}\n"
-                f"💬 Xabar: {settings['welcome_message']}"
-            )
-        else:
-            text = "⚠️ Hech qanday sozlama topilmadi."
-        await query.edit_message_text(text, reply_markup=get_settings_keyboard())
-
-# Xabarlarni qayta ishlash
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Bot xabarlarini o'tkazib yuborish
-    if update.message.from_user.is_bot:
-        return
-    
-    chat = update.effective_chat
-    user = update.effective_user
-    
-    # Shaxsiy chatda
-    if chat.type == 'private':
-        await update.message.reply_text(
-            "Botni guruhga qo'shing va /settings orqali sozlang!"
-        )
-        return
-    
-    # Guruhda sozlash rejimi
-    if 'waiting_for_channel' in context.user_data and context.user_data['waiting_for_channel']:
-        channel_username = update.message.text.strip()
-        
-        # Formatni tekshirish
-        if not channel_username.startswith('@'):
-            await update.message.reply_text("❌ Kanal username @ belgisi bilan boshlanishi kerak!")
-            return
-        
-        try:
-            # Kanal mavjudligini tekshirish
-            chat_info = await context.bot.get_chat(channel_username)
-            if chat_info.type != 'channel':
-                await update.message.reply_text("❌ Bu kanal emas! Iltimos, kanal username ni yuboring.")
-                return
-            
-            # Sozlamalarni saqlash
-            save_group_settings(chat.id, channel_username)
-            
-            # Eski xabarni o'chirish
-            try:
-                await context.bot.delete_message(
-                    chat.id,
-                    context.user_data['editing_message_id']
-                )
-            except:
-                pass
-            
-            await update.message.reply_text(
-                f"✅ Sozlamalar saqlandi!\n\n"
-                f"Endi faqat {channel_username} kanaliga obuna bo'lgan foydalanuvchilar "
-                f"guruhda yozishi mumkin."
-            )
-            
-            # User datani tozalash
-            context.user_data.pop('waiting_for_channel', None)
-            context.user_data.pop('editing_message_id', None)
-            
-        except Exception as e:
-            logger.error(f"Kanal tekshirish xatosi: {e}")
-            await update.message.reply_text(
-                "❌ Kanal topilmadi yoki bot kanalga kirish huquqiga ega emas!\n\n"
-                "Iltimos, kanal username ni to'g'ri kiriting."
-            )
-    
-    elif 'waiting_for_welcome' in context.user_data and context.user_data['waiting_for_welcome']:
-        welcome_message = update.message.text
-        
-        # Joriy sozlamalarni olish
-        settings = get_group_settings(chat.id)
-        if settings:
-            save_group_settings(chat.id, settings['channel_username'], welcome_message)
-            
-            # Eski xabarni o'chirish
-            try:
-                await context.bot.delete_message(
-                    chat.id,
-                    context.user_data['editing_message_id']
-                )
-            except:
-                pass
-            
-            await update.message.reply_text("✅ Xabar saqlandi!")
-        else:
-            await update.message.reply_text("❌ Avval kanal sozlamalarini o'rnating!")
-        
-        context.user_data.pop('waiting_for_welcome', None)
-        context.user_data.pop('editing_message_id', None)
-    
-    else:
-        # Oddiy xabarlarni tekshirish
-        settings = get_group_settings(chat.id)
-        
-        # Agar sozlama yo'q bo'lsa, barcha xabarlarga ruxsat
-        if not settings:
-            return
-        
-        # Adminlarni tekshirmaslik
-        try:
-            member = await chat.get_member(user.id)
-            if member.status in ['administrator', 'creator']:
-                return
-        except:
-            pass
-        
-        # A'zolikni tekshirish
-        is_member = await check_channel_membership(
-            user.id,
-            settings['channel_username'],
-            context
-        )
-        
-        if not is_member:
-            try:
-                # Xabarni o'chirish
-                await update.message.delete()
-                
-                # Ogohlantirish xabarini yuborish
-                warning_msg = await update.message.reply_text(
-                    f"👋 {user.mention_html()}\n{settings['welcome_message']}",
-                    parse_mode='HTML'
-                )
-                
-                # 10 sonydan so'ng ogohlantirishni o'chirish
-                async def delete_warning(context: ContextTypes.DEFAULT_TYPE):
-                    try:
-                        await context.bot.delete_message(
-                            warning_msg.chat_id,
-                            warning_msg.message_id
-                        )
-                    except:
-                        pass
-                
-                await context.job_queue.run_once(
-                    delete_warning,
-                    10,
-                    name=f"delete_warning_{warning_msg.message_id}"
-                )
-                
-            except Exception as e:
-                logger.error(f"Xabarni o'chirish xatosi: {e}")
-
-# Xatolik handler
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Xatolik: {context.error}", exc_info=context.error)
-
-# Asosiy funksiya
-def main():
-    # Ma'lumotlar bazasini ishga tushirish
-    init_db()
-    
-    # Bot tokenni kiriting
-    BOT_TOKEN = "8227647066:AAHVl028wisNavIs1f8e-CYB97NDTB6RAhU"
-    
-    # Botni yaratish
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Handlerlarni qo'shish
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("settings", settings_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("broadcast", broadcast_command))
-    application.add_handler(CommandHandler("myid", myid_command))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_error_handler(error_handler)
-    
-    # Botni ishga tushirish
-    print("🤖 Bot ishga tushdi...")
-    print(f"👑 Owner ID: {BOT_OWNER_ID}")
-    print("⏳ Bot ishlamoqda...")
-    
-    # Oddiy run_polling
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+        query.edit_message_text(
+            "✅ Sozlamalar o'chirildi!\n\n
