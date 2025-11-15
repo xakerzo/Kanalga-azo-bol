@@ -478,7 +478,7 @@ def main():
 
     # Webhook bilan ishga tushirish
     PORT = int(os.environ.get("PORT", 8080))
-    WEBHOOK_URL = "https://kanalga-azo-bol-production.up.railway.app
+    WEBHOOK_URL = "https://kanalga-azo-bol-production.up.railway.app"
     
     application.run_webhook(
         listen="0.0.0.0",
