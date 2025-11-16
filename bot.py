@@ -7,7 +7,7 @@ import os
 
 # Sozlamalar
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8227647066:AAHVzzhMSgDCYz3pLqg96N8iQKlYcplhAuo')
-BOT_OWNER_ID = int(os.getenv('BOT_OWNER_ID' '1373647)
+BOT_OWNER_ID = int(os.getenv('BOT_OWNER_ID' '1373647')
 
 # Logging
 logging.basicConfig(
