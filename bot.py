@@ -336,7 +336,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Asosiy funksiya
 def main():
-    if not BOT_TOKEN or BOT_TOKEN == '8227647066:AAHVzzhMSgDCYz3pLqg96N8iQKlYcplhAuo':
+    if not BOT_TOKEN or BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
         logger.error("❌ BOT_TOKEN topilmadi!")
         return
     
