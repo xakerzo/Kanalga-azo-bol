@@ -2,7 +2,6 @@ import logging
 import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
-from telegram.error import TelegramError
 import os
 
 # Sozlamalar
@@ -58,11 +57,7 @@ async def check_channel_membership(user_id, channel_username, context):
     try:
         if not channel_username:
             return True
-            
-        # @ belgisini olib tashlash
         channel_username = channel_username.replace('@', '')
-        
-        # Chat a'zoligini tekshirish
         chat_member = await context.bot.get_chat_member(f"@{channel_username}", user_id)
         return chat_member.status in ['member', 'administrator', 'creator']
     except Exception as e:
@@ -75,7 +70,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if chat.type == "private":
-        # Owner uchun maxsus xabar
         if user.id == BOT_OWNER_ID:
             await update.message.reply_text(
                 "👑 Salom Owner!\n\n"
@@ -106,7 +100,6 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Bu buyruq faqat guruhlarda ishlaydi!")
         return
     
-    # Adminlikni tekshirish
     try:
         member = await chat.get_member(user.id)
         if member.status not in ['administrator', 'creator']:
@@ -132,13 +125,10 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    
-    # Faqat owner uchun
     if user.id != BOT_OWNER_ID:
         await update.message.reply_text("❌ Bu buyruq faqat bot owneri uchun!")
         return
     
-    # Statistikalar
     conn = sqlite3.connect('bot.db')
     c = conn.cursor()
     c.execute('SELECT COUNT(*) FROM group_settings')
@@ -153,8 +143,6 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    
-    # Faqat owner uchun
     if user.id != BOT_OWNER_ID:
         await update.message.reply_text("❌ Bu buyruq faqat bot owneri uchun!")
         return
@@ -164,8 +152,6 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     message = " ".join(context.args)
-    
-    # Barcha guruhlarga xabar yuborish
     conn = sqlite3.connect('bot.db')
     c = conn.cursor()
     c.execute('SELECT group_id FROM group_settings')
@@ -246,14 +232,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     message_text = update.message.text
     
-    # Shaxsiy chatda ishlamaydi
     if chat.type == "private":
         return
     
-    # Sozlamalarni o'rnatish
     if context.user_data.get('waiting_for_channel'):
         try:
-            # Kanal username ni saqlash
             channel_username = message_text.strip()
             settings = get_group_settings(chat.id)
             
@@ -272,7 +255,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif context.user_data.get('waiting_for_welcome'):
         try:
-            # Xush kelib xabarini saqlash
             welcome_message = message_text.strip()
             settings = get_group_settings(chat.id)
             
@@ -291,53 +273,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Oddiy xabarlarni tekshirish
     settings = get_group_settings(chat.id)
     if not settings:
-        return  # Sozlama yo'q, barchaga ruxsat
+        return
     
-    # Adminlarni tekshirish
     try:
         member = await chat.get_member(user.id)
         if member.status in ['administrator', 'creator']:
-            return  # Adminlarga ruxsat
+            return
     except Exception as e:
         logger.error(f"❌ Adminlik tekshirish xatosi: {e}")
         return
     
-    # Kanal a'zoligini tekshirish
     is_member = await check_channel_membership(user.id, settings['channel_username'], context)
-    logger.info(f"🔍 {user.id} a'zoligi: {is_member}")
     
     if not is_member and settings['channel_username']:
         try:
-            # Xabarni o'chirish
             await update.message.delete()
-            logger.info(f"🗑️ {user.id} xabari o'chirildi")
             
-            # Ogohlantirish xabarini yuborish
             welcome_msg = settings['welcome_message'] or "Iltimos, kanalga a'zo bo'ling!"
             warning_msg = await context.bot.send_message(
                 chat_id=chat.id,
                 text=f"👋 {user.mention_html()}\n{welcome_msg}\n\nKanal: @{settings['channel_username']}",
                 parse_mode='HTML'
             )
-            logger.info(f"⚠️ {user.id} ga ogohlantirish yuborildi")
             
-            # 10 soniyadan keyin ogohlantirishni o'chirish
-            async def delete_warning(context: ContextTypes.DEFAULT_TYPE):
+            # Ogohlantirishni 10 soniyadan keyin o'chirish
+            async def delete_warning(job_context):
+                data = job_context.job.data
                 try:
                     await context.bot.delete_message(
-                        chat_id=warning_msg.chat_id, 
-                        message_id=warning_msg.message_id
+                        chat_id=data['chat_id'],
+                        message_id=data['message_id']
                     )
-                    logger.info(f"✅ Ogohlantirish o'chirildi")
                 except Exception as e:
                     logger.error(f"❌ Ogohlantirishni o'chirish xatosi: {e}")
             
             await context.job_queue.run_once(
-                delete_warning, 
-                10, 
+                delete_warning,
+                when=10,
+                data={'chat_id': warning_msg.chat_id, 'message_id': warning_msg.message_id},
                 name=f"delete_warning_{warning_msg.message_id}"
             )
-            
         except Exception as e:
             logger.error(f"❌ Xabarni o'chirish yoki ogohlantirish xatosi: {e}")
 
@@ -351,28 +326,22 @@ def main():
         logger.error("❌ BOT_TOKEN topilmadi!")
         return
     
-    # Ma'lumotlar bazasini yaratish
     init_db()
     
-    # Botni yaratish
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Handlerlarni qo'shish
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("myid", myid_command))
-    application.add_handler(CommandHandler("cancel", start_command))  # Bekor qilish
+    application.add_handler(CommandHandler("cancel", start_command))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
 
     logger.info("🤖 Bot ishga tushdi...")
     logger.info(f"👑 Owner ID: {BOT_OWNER_ID}")
-    logger.info("⏳ Bot ishlamoqda...")
-
-    # Polling bilan ishga tushirish
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
